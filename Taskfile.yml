@@ -9,6 +9,9 @@ vars:
     sh: git describe --tags --always --dirty 2>/dev/null || echo dev
   PROTO_DIR: proto
   PROTO_GEN_DIR: proto/gen
+  # Set to 0 where the generated code is compiled immediately and never
+  # committed (the container build), so protoc's version stamp cannot matter.
+  PROTOC_VERSION_CHECK: "1"
   # protoc plugins are pinned by the `tool` directives in go.mod, so the
   # generated code cannot drift with whatever happens to be on $PATH.
   PROTOC_GEN_GO:
@@ -32,9 +35,27 @@ tasks:
       - go build -o /dev/null google.golang.org/protobuf/cmd/protoc-gen-go
       - go build -o /dev/null google.golang.org/grpc/cmd/protoc-gen-go-grpc
 
+  protoc:check:
+    desc: Verify the local protoc matches the version pinned in .protoc-version
+    cmds:
+      - |
+        if [ "{{.PROTOC_VERSION_CHECK}}" = "0" ]; then exit 0; fi
+        want=$(tr -d '[:space:]' < .protoc-version)
+        got=$(protoc --version | awk '{print $2}')
+        if [ "$got" != "$want" ]; then
+          echo "protoc $got is installed, but this repo pins $want (.protoc-version)." >&2
+          echo "" >&2
+          echo "protoc stamps its own version into the generated files, so a" >&2
+          echo "mismatch makes 'task generate:check' fail in CI even when the" >&2
+          echo "generated code is otherwise identical." >&2
+          echo "" >&2
+          echo "Install protoc $want, or bump .protoc-version and rerun 'task generate'." >&2
+          exit 1
+        fi
+
   generate:
     desc: Generate protobuf/gRPC stubs and validate the OpenAPI spec
-    deps: [tools]
+    deps: [tools, protoc:check]
     sources:
       - "{{.PROTO_DIR}}/**/*.proto"
       - api/openapi.yaml

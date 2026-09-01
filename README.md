@@ -22,9 +22,15 @@ task            # list every task
 task ci         # everything CI runs: generate:check, lint, test, integration, build
 ```
 
-Requires Go 1.27.0 (pinned in [`.go-version`](.go-version)), `protoc`, and
+Requires Go 1.27.0 (pinned in [`.go-version`](.go-version)), protoc 36.0
+(pinned in [`.protoc-version`](.protoc-version)), and
 [go-task](https://taskfile.dev). Everything else is fetched by the Go
 toolchain.
+
+protoc stamps its own version into the files it generates, so `task generate`
+refuses to run against a different protoc rather than let CI fail later on a
+diff that is nothing but a version comment. To move to a new protoc, bump
+`.protoc-version` and rerun `task generate` — CI reads the same file.
 
 ## Environment variables
 

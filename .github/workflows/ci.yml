@@ -34,10 +34,17 @@ jobs:
           go-version-file: .go-version
           cache: true
 
+      - name: Read the pinned protoc version
+        id: protoc
+        # protoc stamps its version into the generated files, so CI must use
+        # exactly the version developers use or generate:check reports a diff
+        # that is nothing but a version comment.
+        run: echo "version=$(tr -d '[:space:]' < .protoc-version)" >> "$GITHUB_OUTPUT"
+
       - name: Install protoc
         uses: arduino/setup-protoc@v3
         with:
-          version: "31.1"
+          version: ${{ steps.protoc.outputs.version }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install go-task

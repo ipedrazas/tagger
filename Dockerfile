@@ -27,9 +27,13 @@ COPY . .
 
 ARG VERSION=dev
 ENV CGO_ENABLED=0
+# PROTOC_VERSION_CHECK=0: alpine ships a different protoc than .protoc-version
+# pins, but here the stubs are generated and compiled in the same step and
+# never committed, so protoc's version stamp (a comment) cannot matter. The
+# plugins that decide the generated API are pinned by go.mod either way.
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    task generate build VERSION=${VERSION}
+    task generate build VERSION=${VERSION} PROTOC_VERSION_CHECK=0
 
 # --- runtime ----------------------------------------------------------------
 # distroless/static: no shell, no package manager, non-root by default.
