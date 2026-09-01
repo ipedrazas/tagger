@@ -1,0 +1,217 @@
+version: "3"
+
+vars:
+  BINARY: tagger
+  MODULE: github.com/ipedrazas/tagger
+  IMAGE: ghcr.io/ipedrazas/tagger/tagger
+  # Overridden in CI with the tag or commit SHA.
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+  PROTO_DIR: proto
+  PROTO_GEN_DIR: proto/gen
+  # Set to 0 where the generated code is compiled immediately and never
+  # committed (the container build), so protoc's version stamp cannot matter.
+  PROTOC_VERSION_CHECK: "1"
+  # protoc plugins are pinned by the `tool` directives in go.mod, so the
+  # generated code cannot drift with whatever happens to be on $PATH.
+  PROTOC_GEN_GO:
+    sh: go tool -n protoc-gen-go 2>/dev/null || true
+  PROTOC_GEN_GO_GRPC:
+    sh: go tool -n protoc-gen-go-grpc 2>/dev/null || true
+
+env:
+  # Static binaries by default. The test tasks override this: the race
+  # detector needs cgo, and on Linux `go test -race` refuses to run without it
+  # (darwin is more forgiving, which is how this reached CI unnoticed).
+  CGO_ENABLED: "0"
+
+tasks:
+  default:
+    desc: List the available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  tools:
+    desc: Install the pinned code-generation plugins into the build cache
+    cmds:
+      - go build -o /dev/null google.golang.org/protobuf/cmd/protoc-gen-go
+      - go build -o /dev/null google.golang.org/grpc/cmd/protoc-gen-go-grpc
+
+  protoc:check:
+    desc: Verify the local protoc matches the version pinned in .protoc-version
+    cmds:
+      - |
+        if [ "{{.PROTOC_VERSION_CHECK}}" = "0" ]; then exit 0; fi
+        want=$(tr -d '[:space:]' < .protoc-version)
+        got=$(protoc --version | awk '{print $2}')
+        if [ "$got" != "$want" ]; then
+          echo "protoc $got is installed, but this repo pins $want (.protoc-version)." >&2
+          echo "" >&2
+          echo "protoc stamps its own version into the generated files, so a" >&2
+          echo "mismatch makes 'task generate:check' fail in CI even when the" >&2
+          echo "generated code is otherwise identical." >&2
+          echo "" >&2
+          echo "Install protoc $want, or bump .protoc-version and rerun 'task generate'." >&2
+          exit 1
+        fi
+
+  generate:
+    desc: Generate protobuf/gRPC stubs and validate the OpenAPI spec
+    deps: [tools, protoc:check]
+    sources:
+      - "{{.PROTO_DIR}}/**/*.proto"
+      - api/openapi.yaml
+    generates:
+      - "{{.PROTO_GEN_DIR}}/**/*.pb.go"
+    cmds:
+      - rm -rf {{.PROTO_GEN_DIR}}
+      - mkdir -p {{.PROTO_GEN_DIR}}
+      - >-
+        protoc
+        --proto_path={{.PROTO_DIR}}
+        --plugin=protoc-gen-go={{.PROTOC_GEN_GO}}
+        --plugin=protoc-gen-go-grpc={{.PROTOC_GEN_GO_GRPC}}
+        --go_out={{.PROTO_GEN_DIR}} --go_opt=paths=source_relative
+        --go-grpc_out={{.PROTO_GEN_DIR}} --go-grpc_opt=paths=source_relative
+        $(find {{.PROTO_DIR}} -name '*.proto')
+      - task: openapi:validate
+
+  openapi:validate:
+    desc: Check the OpenAPI document parses and matches the routes the server serves
+    cmds:
+      - go test ./api/...
+
+  generate:check:
+    desc: Fail if the generated code is out of date with the .proto sources
+    cmds:
+      - task: generate
+      - |
+        # --porcelain also catches untracked files, so generated code that was
+        # never committed fails the check instead of silently passing.
+        if [ -n "$(git status --porcelain -- {{.PROTO_GEN_DIR}})" ]; then
+          echo "Generated code is stale or uncommitted." >&2
+          echo "Run 'task generate' and commit the result." >&2
+          git status --porcelain -- {{.PROTO_GEN_DIR}} >&2
+          git --no-pager diff -- {{.PROTO_GEN_DIR}} >&2
+          exit 1
+        fi
+
+  fmt:
+    desc: Format the code
+    cmds:
+      - gofmt -w .
+      - go mod tidy
+
+  lint:
+    desc: Run golangci-lint
+    deps: [generate]
+    cmds:
+      - golangci-lint run ./...
+
+  test:
+    desc: Run the unit tests (no API key required)
+    deps: [generate]
+    env:
+      CGO_ENABLED: "1"
+    cmds:
+      - go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+  test:integration:
+    desc: Run the integration tests against a stubbed upstream, or a live service
+    summary: |
+      Starts the real REST and gRPC servers on ephemeral ports, backed by a stub
+      OpenRouter, and drives both over real sockets. No API key needed.
+
+      To test an already-running instance instead:
+        TAGGER_HTTP_ADDR=localhost:8080 TAGGER_GRPC_ADDR=localhost:9090 task test:integration
+    deps: [generate]
+    env:
+      CGO_ENABLED: "1"
+    cmds:
+      - go test -race -tags integration -count=1 ./test/...
+
+  test:all:
+    desc: Run unit and integration tests
+    cmds:
+      - task: test
+      - task: test:integration
+
+  cover:
+    desc: Show the test coverage report in a browser
+    deps: [test]
+    cmds:
+      - go tool cover -html=coverage.out
+
+  build:
+    desc: Build the service binary into ./bin
+    deps: [generate]
+    cmds:
+      - >-
+        go build -trimpath
+        -ldflags "-s -w -X main.version={{.VERSION}}"
+        -o bin/{{.BINARY}} ./cmd/{{.BINARY}}
+
+  run:
+    desc: Run the service locally (reads .env if present)
+    deps: [build]
+    cmds:
+      - |
+        set -a
+        [ -f .env ] && . ./.env
+        set +a
+        ./bin/{{.BINARY}}
+
+  clean:
+    desc: Remove build and test artefacts
+    cmds:
+      - rm -rf bin coverage.out
+
+  docker:build:
+    desc: Build the container image
+    cmds:
+      - >-
+        docker build
+        --build-arg VERSION={{.VERSION}}
+        -t {{.IMAGE}}:{{.VERSION}}
+        -t {{.IMAGE}}:latest
+        .
+
+  docker:push:
+    desc: Push the container image to GitHub Container Registry
+    summary: |
+      Requires a ghcr.io login with write:packages scope:
+
+        echo "$GITHUB_TOKEN" | docker login ghcr.io -u <username> --password-stdin
+
+      CI does this with the workflow's GITHUB_TOKEN; this task is for manual
+      pushes only.
+    deps: [docker:build]
+    cmds:
+      - docker push {{.IMAGE}}:{{.VERSION}}
+      - docker push {{.IMAGE}}:latest
+
+  compose:up:
+    desc: Start the service with docker compose
+    cmds:
+      - docker compose up --build -d
+      - docker compose logs -f tagger
+
+  compose:down:
+    desc: Stop the docker compose stack
+    cmds:
+      - docker compose down -v
+
+  smoke:
+    desc: Curl/grpcurl a running service (defaults to localhost)
+    cmds:
+      - ./scripts/smoke.sh
+
+  ci:
+    desc: Everything CI runs, in order
+    cmds:
+      - task: generate:check
+      - task: lint
+      - task: test
+      - task: test:integration
+      - task: build

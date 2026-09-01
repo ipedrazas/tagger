@@ -1,0 +1,102 @@
+openapi: 3.1.0
+info:
+  title: tagger
+  description: Turns free-form text into a short array of topical tags using an LLM served via OpenRouter.
+  version: "1.0.0"
+  license:
+    name: MIT
+servers:
+  - url: http://localhost:8080
+    description: Local development
+paths:
+  /tag:
+    post:
+      summary: Tag free-form text
+      operationId: tag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TagRequest"
+            examples:
+              article:
+                value:
+                  text: "Kubernetes operators reconcile desired state by watching custom resources."
+      responses:
+        "200":
+          description: Tags extracted from the text.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagResponse"
+              examples:
+                article:
+                  value:
+                    tags: ["kubernetes", "operators", "custom resources", "reconciliation"]
+        "400":
+          description: The body was not valid JSON, or text was missing or empty.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "413":
+          description: The body or the text field exceeded the configured size limit.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "502":
+          description: The upstream LLM failed or returned an unparseable response.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "504":
+          description: The upstream LLM did not answer within the request timeout.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+  /health:
+    get:
+      summary: Liveness probe
+      operationId: health
+      responses:
+        "200":
+          description: The service is up.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+components:
+  schemas:
+    TagRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          description: The text to tag.
+      additionalProperties: false
+    TagResponse:
+      type: object
+      required: [tags]
+      properties:
+        tags:
+          type: array
+          items:
+            type: string
+          description: Lower-cased, de-duplicated tags. May be empty.
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    HealthResponse:
+      type: object
+      required: [status, version]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        version:
+          type: string

@@ -1,0 +1,14 @@
+.git
+.github
+bin
+coverage.*
+*.out
+.env
+.DS_Store
+README.md
+docker-compose*.yml
+
+# go-task's fingerprint cache. Without this the builder can decide
+# `generate` is "up to date" from a checksum baked on the developer's
+# machine and ship stubs it never actually regenerated.
+.task
