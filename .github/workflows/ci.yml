@@ -46,22 +46,15 @@ jobs:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install golangci-lint
-        # Pinned to the exact version the Taskfile expects, and installed as a
-        # plain binary so `task lint` in CI is byte-for-byte the `task lint`
-        # developers run.
-        env:
-          GOLANGCI_LINT_VERSION: v2.13.2
-        run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
-            | sh -s -- -b "$(go env GOPATH)/bin" "$GOLANGCI_LINT_VERSION"
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-
       - name: Verify generated code is current
         run: task generate:check
 
       - name: Lint
-        run: task lint
+        uses: golangci/golangci-lint-action@v9.3.0
+        with:
+          # Same linter version `task lint` uses locally, so CI and a
+          # workstation cannot disagree about what passes.
+          version: v2.13.2
 
       - name: Unit tests
         # No OPENROUTER_API_KEY: the LLM is mocked, and the absence proves it.
