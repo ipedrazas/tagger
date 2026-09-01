@@ -20,6 +20,9 @@ vars:
     sh: go tool -n protoc-gen-go-grpc 2>/dev/null || true
 
 env:
+  # Static binaries by default. The test tasks override this: the race
+  # detector needs cgo, and on Linux `go test -race` refuses to run without it
+  # (darwin is more forgiving, which is how this reached CI unnoticed).
   CGO_ENABLED: "0"
 
 tasks:
@@ -109,6 +112,8 @@ tasks:
   test:
     desc: Run the unit tests (no API key required)
     deps: [generate]
+    env:
+      CGO_ENABLED: "1"
     cmds:
       - go test -race -coverprofile=coverage.out -covermode=atomic ./...
 
@@ -121,6 +126,8 @@ tasks:
       To test an already-running instance instead:
         TAGGER_HTTP_ADDR=localhost:8080 TAGGER_GRPC_ADDR=localhost:9090 task test:integration
     deps: [generate]
+    env:
+      CGO_ENABLED: "1"
     cmds:
       - go test -race -tags integration -count=1 ./test/...
 
