@@ -1,0 +1,20 @@
+# Optional docs-only overlay: serves a Swagger UI against the spec the running
+# service publishes at /openapi.yaml.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.docs.yml up
+#
+# Then open http://localhost:8081.
+
+services:
+  docs:
+    image: swaggerapi/swagger-ui:v5.29.4
+    ports:
+      - "${DOCS_PORT:-8081}:8080"
+    environment:
+      # Read from the service itself, so the docs always match the running
+      # build rather than a checked-in copy.
+      URL: "http://localhost:${HTTP_PORT:-8080}/openapi.yaml"
+      DEEP_LINKING: "true"
+    depends_on:
+      tagger:
+        condition: service_healthy

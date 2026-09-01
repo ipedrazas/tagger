@@ -1,0 +1,9 @@
+.git
+.github
+bin
+coverage.*
+*.out
+.env
+.DS_Store
+README.md
+docker-compose*.yml

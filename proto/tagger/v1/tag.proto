@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package tagger.v1;
+
+option go_package = "github.com/ipedrazas/tagger/proto/gen/tagger/v1;taggerv1";
+
+// Tagger turns free-form text into a small set of topical tags.
+service Tagger {
+  // Tag returns the tags extracted from the supplied text.
+  rpc Tag(TagRequest) returns (TagResponse);
+}
+
+message TagRequest {
+  // Free-form text to tag. Must be non-empty after trimming whitespace.
+  string text = 1;
+}
+
+message TagResponse {
+  // Lower-cased, de-duplicated tags. May be empty if the model found none.
+  repeated string tags = 1;
+}

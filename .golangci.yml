@@ -1,0 +1,38 @@
+version: "2"
+
+run:
+  timeout: 5m
+  # Integration tests live behind a build tag; lint them too.
+  build-tags:
+    - integration
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose      # HTTP response bodies must be closed or connections leak
+    - copyloopvar
+    - errorlint      # we rely on errors.Is/As for the whole error taxonomy
+    - gocritic
+    - misspell
+    - nilerr
+    - noctx          # every outbound call must carry a context
+    - revive
+    - unconvert
+    - wastedassign
+  exclusions:
+    rules:
+      # Generated protobuf code is not ours to style.
+      - path: proto/gen/
+        linters:
+          - revive
+          - gocritic
+          - staticcheck
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/ipedrazas/tagger
